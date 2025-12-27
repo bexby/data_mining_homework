@@ -1,15 +1,18 @@
 import os
+import time
 import json
 import math
 import random
 from typing import List, Callable, Tuple
 from functools import partial
-from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Pool, cpu_count
 
-SAVE_PATH = "GMM_log_test.jsonl"
-DATA_PATH = "test_data.txt"
-STEPS = 50
-K = 2
+K = 15
+STEPS = 100
+DATA_PATH = "data.txt"
+SAVE_PATH = f"GMM_log_{K}.jsonl"
+
+
 
 def matrix_mul(mat1: List[List], mat2: List[List]) ->List[List]:
     assert len(mat1[0]) == len(mat2), "mat1's columns must be equal to mat2's rows"
@@ -85,64 +88,79 @@ class Gaussian_Mixture_Model_2d:
         self.alpha, self.mu, self.sigma = None, None, None
 
 
+    def loss(self, data):
+        probs = map(Gaussian_Distibution_2d, [data] * self.k, self.mu, self.sigma)
+        weighted_sum = sum(a * p for a, p in zip(self.alpha, probs))
+        loss = -math.log(weighted_sum)
+        return loss
 
-    def train(self, data: List[List], steps: int):
+
+    def train(self, data: List[List], steps: int, accelerate: bool = False):
 
         self.alpha, self.mu, self.sigma = self.init_func(data, self.k)
-        import pdb
-        pdb.set_trace()
         log = []
-        for step in range(steps):
-            p_kn = []   # (K, N)
-            for k in range(self.k):
-                Gauss = partial(Gaussian_Distibution_2d, mu=self.mu[k], sigma=self.sigma[k])  
-                p_kn.append(list(map(Gauss, data)))
-            
-            sum_n = [sum(i * a for i, a in zip(item, self.alpha)) for item in zip(*p_kn)]  # (N, )
-            gama_kn = [[a * i / s for i, s in zip(j, sum_n)] for j, a in zip(p_kn, self.alpha)] # (K, N)
-            sum_gama = [sum(item) for item in gama_kn]  # (K, )
-            self.alpha = [item / sum(sum_gama) for item in sum_gama] # (K, )
-            # import pdb
-            # pdb.set_trace()
-            new_mu = []
-            new_sigma = []
-            for gama, sg in zip(gama_kn, sum_gama):
-                temp_mu = [[i*ga, j*ga] for (i, j), ga in zip(data, gama)]   # (N, 2)
-                temp_mu = [sum(i) / sg for i in zip(*temp_mu)]  # (2, )
-                new_mu.append(temp_mu)
+        with Pool(cpu_count()) as executor:
+            for step in range(steps):
+                p_kn = []   # (K, N)
+                for k in range(self.k):
+                    Gauss = partial(Gaussian_Distibution_2d, mu=self.mu[k], sigma=self.sigma[k])
+                    if accelerate:
+                        p_kn.append(list(executor.map(Gauss, data)))
+                    else:  
+                        p_kn.append(list(map(Gauss, data)))
+                
+                sum_n = [sum(i * a for i, a in zip(item, self.alpha)) for item in zip(*p_kn)]  # (N, )
+                gama_kn = [[a * i / s for i, s in zip(j, sum_n)] for j, a in zip(p_kn, self.alpha)] # (K, N)
+                sum_gama = [sum(item) for item in gama_kn]  # (K, )
+                self.alpha = [item / sum(sum_gama) for item in sum_gama] # (K, )
 
-                bias_x, bias_y = [[i - m for i in d] for d, m in zip(zip(*data), temp_mu)]
-                x_var = covariance_weight(bias_x, bias_x, gama)
-                y_var = covariance_weight(bias_y, bias_y, gama)
-                cov_xy = covariance_weight(bias_x, bias_y, gama)
-                new_sigma.append([[x_var, cov_xy], [cov_xy, y_var]])
 
-            self.mu = new_mu
-            self.sigma = new_sigma
-            # loss = sum(math.log(sum(a * p for a, p in zip(alpha, map(Gaussian_Distibution_2d, data=[d]*K, mu=new_mu, sigma=new_sigma)))) for d in data)
-            loss = 0.0
-            for d in data:
-                probs = map(Gaussian_Distibution_2d, [d] * self.k, self.mu, self.sigma)
-                weighted_sum = sum(a * p for a, p in zip(self.alpha, probs))
-                loss += -math.log(weighted_sum)
-            
-            log.append({"step": step, "alpha": self.alpha, "mu": self.mu, "sigma": self.sigma, "loss": loss})
+                new_mu = []
+                new_sigma = []
+                for gama, sg in zip(gama_kn, sum_gama):
+                    temp_mu = [[i*ga, j*ga] for (i, j), ga in zip(data, gama)]   # (N, 2)
+                    temp_mu = [sum(i) / sg for i in zip(*temp_mu)]  # (2, )
+                    new_mu.append(temp_mu)
+
+                    bias_x, bias_y = [[i - m for i in d] for d, m in zip(zip(*data), temp_mu)]
+                    x_var = covariance_weight(bias_x, bias_x, gama)
+                    y_var = covariance_weight(bias_y, bias_y, gama)
+                    cov_xy = covariance_weight(bias_x, bias_y, gama)
+                    new_sigma.append([[x_var, cov_xy], [cov_xy, y_var]])
+
+                self.mu = new_mu
+                self.sigma = new_sigma
+
+                if accelerate:
+                     loss_list = executor.map(self.loss, data)
+                     loss = sum(loss_list)
+                else:
+                    loss = 0.0
+                    for d in data:
+                        probs = map(Gaussian_Distibution_2d, [d] * self.k, self.mu, self.sigma)
+                        weighted_sum = sum(a * p for a, p in zip(self.alpha, probs))
+                        loss += -math.log(weighted_sum)
+                
+                log.append({"step": step, "alpha": self.alpha, "mu": self.mu, "sigma": self.sigma, "loss": loss})
         return log
 
 
 def main():
+    start = time.time()
     with open(DATA_PATH, "r") as fr:
         data = [list(map(float, line.split())) for line in fr.readlines()]
     # import pdb
     # pdb.set_trace()
     gmm = Gaussian_Mixture_Model_2d(K, custom_initialize)
-    log = gmm.train(data, STEPS)
-
+    log = gmm.train(data, STEPS, True)
+    
     with open(SAVE_PATH, "w") as fw:
         for l in log:
             fw.write(json.dumps(l))
             fw.write("\n")
-
+            
+    end = time.time()
+    print(f"{end - start:.6f} seconds")
 
 if __name__ == "__main__":
     main()

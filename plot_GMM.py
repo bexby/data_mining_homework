@@ -115,7 +115,7 @@ def plot_gmm(data, means, covs, weights=None, ax=None, cmap='tab10', show_legend
 if __name__ == "__main__":
     # 生成一些示例数据用于演示
 
-    with open("GMM_log.jsonl", "r") as fr:
+    with open("GMM_log_15.jsonl", "r") as fr:
         gauss = [json.loads(line) for line in fr.readlines()]
     
     gauss = gauss[-1]
