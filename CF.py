@@ -4,6 +4,7 @@ import heapq as hq
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import pdb
 
 class Collaborative_Filtering:
     def __init__(self, save_topk: int):
@@ -62,9 +63,11 @@ class Collaborative_Filtering:
         for i1, m1 in enumerate(movie):
             for i2 in range(i1 + 1, len(movie)):
                 m2 = movie[i2]
-                
+
                 sim = self.cosin_similary(m1, m2)
                 if sim is not None:
+                    if m1 == 193609 or m2 == 193609:
+                        pdb.set_trace()
                     self.keep_topk_sim(m1, m2, sim)
                     self.keep_topk_sim(m2, m2, sim)
             
@@ -74,18 +77,17 @@ class Collaborative_Filtering:
 
 
     def prediection(self, user_id, movie_id):
-        history_score = dict()
         user_seen = self.user_dict[user_id]
-        # for idx, m in self.group_dict[movie_id]:
-        #     if m in user_seen:
-        #         history_score.update({m: s})
-        
         candidate = []
         for s, movie in self.movie_similary[movie_id]:
             if movie in user_seen:
-                candidate.append((movie, s))
+                for idx, u in enumerate(self.group_dict[movie]):
+                    if u == user_id:
+                        candidate.append((movie, s, self.score_dict[idx]))
+                        break
         
-
+        pred = sum(item[1] * item[2] for item in candidate) / sum(item[1] for item in candidate)
+        return pred
 
 def main():
     df = pd.read_csv("./data/ml-latest-small/ratings.csv")
@@ -93,6 +95,8 @@ def main():
     print(df.tail())
     cf = Collaborative_Filtering(100)
     cf.train(df)
+    pred = cf.prediection(1, 1)
+    print(pred)
 
 
 if __name__ == "__main__":
