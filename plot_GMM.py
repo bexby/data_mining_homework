@@ -55,13 +55,14 @@ def plot_gmm(data, means, covs, weights=None, ax=None, cmap='tab10', show_legend
     if ax is None:
         fig, ax = plt.subplots(figsize=(7, 6))
     cmap_obj = plt.get_cmap(cmap)
-    colors = [cmap_obj(i % cmap_obj.N) for i in range(K)]
+    # colors = [cmap_obj(i % cmap_obj.N) for i in range(K)]
+    colors = plt.cm.get_cmap("tab20", K)
 
     # 散点：按标签着色；为美观设置alpha
     for k in range(K):
         mask = labels == k
         if mask.any():
-            ax.scatter(data[mask, 0], data[mask, 1], s=20, alpha=0.7, color=colors[k], label=f'comp {k}')
+            ax.scatter(data[mask, 0], data[mask, 1], s=20, alpha=0.7, color=colors(k), label=f'comp {k}')
 
     
     # 画每个高斯的 1-sigma 椭圆（黑色虚线）
@@ -115,14 +116,14 @@ def plot_gmm(data, means, covs, weights=None, ax=None, cmap='tab10', show_legend
 if __name__ == "__main__":
     # 生成一些示例数据用于演示
 
-    with open("GMM_log_15.jsonl", "r") as fr:
+    with open("./result/GMM/GMM_log_15_kmeans_new.jsonl", "r") as fr:
         gauss = [json.loads(line) for line in fr.readlines()]
     
     gauss = gauss[-1]
     rng = np.random.RandomState(0)
     means = np.array(gauss["mu"])
     covs = np.array(gauss["sigma"])
-    with open("data.txt", "r") as fr:
+    with open("./data/data.txt", "r") as fr:
         data = [list(map(float, line.split())) for line in fr.readlines()]
 
     resp = plot_gmm(data, means, covs)

@@ -9,8 +9,8 @@ from multiprocessing import Pool, cpu_count
 
 K = 15
 STEPS = 100
-DATA_PATH = "data.txt"
-SAVE_PATH = f"GMM_log_{K}.jsonl"
+DATA_PATH = "./data/data.txt"
+SAVE_PATH = f"GMM_log_{K}_kmeans.jsonl"
 
 
 
@@ -81,6 +81,87 @@ def custom_initialize(data: List[List], k: int):
     return [1/k for _ in range(k)], mu, sigma
 
 
+
+
+# def initialize_kmeans_builtin_clusters(data: List[List], k: int):
+#     def euclidean_distance(p1, p2):
+#         return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
+
+#     def covariance_weight(x, y):
+#         n = len(x)
+#         mean_x = sum(x)/n
+#         mean_y = sum(y)/n
+#         return sum((xi-mean_x)*(yi-mean_y) for xi, yi in zip(x, y)) / n
+    
+#     mu = [random.choice(data)]
+#     while len(mu) < k:
+#         dist_sq = []
+#         for point in data:
+#             d = min(euclidean_distance(point, center)**2 for center in mu)
+#             dist_sq.append(d)
+#         next_center = data[dist_sq.index(max(dist_sq))]
+#         mu.append(next_center)
+
+#     clusters = [[] for _ in range(k)]
+#     for point in data:
+#         distances = [euclidean_distance(point, center) for center in mu]
+#         cluster_idx = distances.index(min(distances))
+#         clusters[cluster_idx].append(point)
+
+#     sigma = []
+#     for cluster in clusters:
+#         if len(cluster) == 0:
+#             xlis = [d[0] for d in data]
+#             ylis = [d[1] for d in data]
+#         else:
+#             xlis = [d[0] for d in cluster]
+#             ylis = [d[1] for d in cluster]
+#         x_var = covariance_weight(xlis, xlis)
+#         y_var = covariance_weight(ylis, ylis)
+#         cov_xy = covariance_weight(xlis, ylis)
+#         sigma.append([[x_var, cov_xy], [cov_xy, y_var]])
+
+#     total_points = len(data)
+#     pi = [len(cluster)/total_points for cluster in clusters]
+
+#     return pi, mu, sigma
+
+
+
+def initialize_kmeans_builtin_clusters(data: List[List], k: int):
+    def euclidean_distance(p1, p2):
+        return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)**0.5
+    # 1. KMeans++ 风格初始化质心
+    mu = []
+    # 随机选择第一个质心
+    mu.append(random.choice(data))
+    
+    while len(mu) < k:
+        # 计算每个点到最近已有质心的距离平方
+        dist_sq = []
+        for point in data:
+            d = min(euclidean_distance(point, center)**2 for center in mu)
+            dist_sq.append(d)
+        # 选择距离平方最大的点作为下一个质心
+        next_center = data[dist_sq.index(max(dist_sq))]
+        mu.append(next_center)
+    
+    # 2. 计算全局协方差（和你原来一样）
+    xlis = [d[0] for d in data]
+    ylis = [d[1] for d in data]
+    x_var = covariance_weight(xlis, xlis)
+    y_var = covariance_weight(ylis, ylis)
+    cov_xy = covariance_weight(xlis, ylis)
+    sigma = [[[x_var, cov_xy], [cov_xy, y_var]] for _ in range(k)]
+
+    # 3. 混合系数均等
+    pi = [1/k for _ in range(k)]
+
+    return pi, mu, sigma
+
+
+
+
 class Gaussian_Mixture_Model_2d:
     def __init__(self, K: int, init_func: Callable):
         self.k = K
@@ -95,9 +176,12 @@ class Gaussian_Mixture_Model_2d:
         return loss
 
 
-    def train(self, data: List[List], steps: int, accelerate: bool = False):
+    def train(self, data: List[List], steps: int, accelerate: bool = False, init_value=None):
 
-        self.alpha, self.mu, self.sigma = self.init_func(data, self.k)
+        if init_value is not None:
+            self.alpha, self.mu, self.sigma = init_value
+        else:
+            self.alpha, self.mu, self.sigma = self.init_func(data, self.k)
         log = []
         with Pool(cpu_count()) as executor:
             for step in range(steps):
@@ -146,12 +230,15 @@ class Gaussian_Mixture_Model_2d:
 
 
 def main():
+    '''
+        运行1个k值
+    '''
     start = time.time()
     with open(DATA_PATH, "r") as fr:
         data = [list(map(float, line.split())) for line in fr.readlines()]
-    # import pdb
-    # pdb.set_trace()
-    gmm = Gaussian_Mixture_Model_2d(K, custom_initialize)
+
+    # gmm = Gaussian_Mixture_Model_2d(K, custom_initialize)
+    gmm = Gaussian_Mixture_Model_2d(K, initialize_kmeans_builtin_clusters)
     log = gmm.train(data, STEPS, True)
     
     with open(SAVE_PATH, "w") as fw:
@@ -162,5 +249,60 @@ def main():
     end = time.time()
     print(f"{end - start:.6f} seconds")
 
+
+def main2(min_k=10, max_k=20, results_path="bic_aic_results.json", accelerate=True):
+    '''
+        运行多个k值
+    '''
+
+    def num_gmm_params(k: int, d: int) -> int:
+        return (k - 1) + k * d + k * d * (d + 1) // 2
+
+    with open(DATA_PATH, "r") as fr:
+        data = [list(map(float, line.split())) for line in fr.readlines()]
+
+    n_samples = len(data)
+    d = len(data[0])
+    results = []
+
+    start_all = time.time()
+    for k in range(min_k, max_k + 1):
+        t0 = time.time()
+        print(f"Training GMM with K={k} ...")
+        gmm = Gaussian_Mixture_Model_2d(k, custom_initialize)
+        log = gmm.train(data, STEPS, accelerate=accelerate)
+
+        last_entry = log[-1]
+        loss = last_entry.get("loss", None)
+        if loss is None:
+            loss = 0.0
+            for dpt in data:
+                probs = map(lambda mu_sigma: None, [])  
+        log_likelihood = -loss  
+
+        p = num_gmm_params(k, d)
+        bic = p * math.log(n_samples) - 2.0 * log_likelihood
+        aic = 2.0 * p - 2.0 * log_likelihood
+
+        results.append({
+            "K": k,
+            "n_samples": n_samples,
+            "dim": d,
+            "num_params": p,
+            "log_likelihood": log_likelihood,
+            "BIC": bic,
+            "AIC": aic,
+            "train_time_seconds": time.time() - t0
+        })
+
+        with open(results_path, "w") as fw:
+            json.dump(results, fw, indent=2, ensure_ascii=False)
+
+        print(f" K={k} done, logL={log_likelihood:.3f}, params={p}, BIC={bic:.3f}, AIC={aic:.3f}")
+
+    print(f"All done in {time.time() - start_all:.2f} s. Results saved to {results_path}")
+
+
 if __name__ == "__main__":
     main()
+    # main2()

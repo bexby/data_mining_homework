@@ -1,6 +1,7 @@
 import json
 import matplotlib.pyplot as plt
 import itertools
+import numpy as np
 from typing import List, Dict, Tuple, Set
 
 def _normalize_step(step: Dict) -> Dict[str, List[Tuple[float,float]]]:
@@ -119,9 +120,11 @@ def plot_hc_and_k_clusters(
         raise RuntimeError("未检测到任何合并")
 
     # ===== 画图：dendrogram =====
-    fig, (ax_tree, ax_scatter) = plt.subplots(
-        1, 2, figsize=(16, 6), gridspec_kw={"width_ratios": [2, 1]}
-    )
+    # fig, (ax_tree, ax_scatter) = plt.subplots(
+    #     1, 2, figsize=(16, 6), gridspec_kw={"width_ratios": [2, 1]}
+    # )
+    fig_tree, ax_tree = plt.subplots(figsize=(10, 6))
+    fig_scatter, ax_scatter = plt.subplots(figsize=(6, 6))
 
     # 叶节点
     for i in range(n_leaf):
@@ -144,11 +147,12 @@ def plot_hc_and_k_clusters(
 
         ax_tree.text(
             xp, yp + 0.05, node_info[parent]["label"],
-            ha="center", va="bottom", fontsize=9, color="blue"
+            ha="center", va="bottom", fontsize=9, color="magenta"
         )
 
     ax_tree.set_ylabel("Merge step")
-    ax_tree.set_ylim(-0.5, max(h for *_, h in merges) + 1)
+    ax_tree.set_ylim(-2, max(h for *_, h in merges) + 1)
+    ax_tree.set_yticks(range(0, int(max(h for *_, h in merges)) + 1))
     ax_tree.set_xticks([])
     ax_tree.set_title("Hierarchical Clustering Tree")
     ax_tree.grid(axis="y", linestyle=":", alpha=0.3)
@@ -184,6 +188,130 @@ def plot_hc_and_k_clusters(
 
 
 
+"================================================"
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# sklearn 指标
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+
+
+def _assemble_X_labels(cluster_dict):
+    """把 {cluster_id: [[x,y], ...]} 转成 X, labels"""
+    X_list, y_list = [], []
+    label_map = {}
+    cur = 0
+    for key, pts in cluster_dict.items():
+        if key not in label_map:
+            label_map[key] = cur
+            cur += 1
+        lbl = label_map[key]
+        pts = np.asarray(pts)
+        if pts.ndim == 1:
+            pts = pts.reshape(1, -1)
+        X_list.append(pts)
+        y_list.append(np.full(len(pts), lbl, dtype=int))
+    if not X_list:
+        return np.empty((0, 2)), np.array([], dtype=int)
+    return np.vstack(X_list), np.concatenate(y_list)
+
+
+def plot_silhouette_and_ch(cluster_history, figsize=(14, 5), savepath=None, show=True):
+    """
+    cluster_history: list[dict], 每个 dict 形如 {"4446": [[x,y], ...], ...}
+    """
+    Ks = []
+    ch_list = []
+    sil_list = []
+
+    for step in cluster_history:
+        K = len(step)
+        Ks.append(K)
+
+        X, labels = _assemble_X_labels(step)
+
+        # --- CH 指数 ---
+        try:
+            if len(np.unique(labels)) >= 2 and len(labels) > len(np.unique(labels)):
+                ch = calinski_harabasz_score(X, labels)
+            else:
+                ch = np.nan
+        except Exception:
+            ch = np.nan
+        ch_list.append(ch)
+
+        # --- Silhouette ---
+        try:
+            if len(np.unique(labels)) >= 2 and len(np.unique(labels)) < len(labels):
+                sil = silhouette_score(X, labels)
+            else:
+                sil = np.nan
+        except Exception:
+            sil = np.nan
+        sil_list.append(sil)
+
+    # 按 K 递增排序，便于观察
+    order = np.argsort(Ks)
+    Ks = np.array(Ks)[order]
+    ch_list = np.array(ch_list)[order]
+    sil_list = np.array(sil_list)[order]
+
+    # 最优 K
+    best_ch_k = None if np.all(np.isnan(ch_list)) else int(Ks[np.nanargmax(ch_list)])
+    best_sil_k = None if np.all(np.isnan(sil_list)) else int(Ks[np.nanargmax(sil_list)])
+
+    # ================== 画图 ==================
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+
+    # 左：CH 指数
+    ax1.plot(Ks, ch_list, marker="o")
+    ax1.set_xlabel("Number of clusters (K)")
+    ax1.set_ylabel("Calinski–Harabasz Index")
+    ax1.set_title("CH index vs K (higher is better)")
+
+    if best_ch_k is not None:
+        y = ch_list[np.where(Ks == best_ch_k)][0]
+        ax1.scatter([best_ch_k], [y], s=100, marker="x")
+        ax1.annotate(f"best K={best_ch_k}",
+                     xy=(best_ch_k, y),
+                     xytext=(0, -30),
+                     textcoords="offset points",
+                     ha="center")
+
+    # 右：Silhouette
+    ax2.plot(Ks, sil_list, marker="o")
+    ax2.set_xlabel("Number of clusters (K)")
+    ax2.set_ylabel("Average Silhouette Score")
+    ax2.set_title("Silhouette vs K")
+
+    if best_sil_k is not None:
+        y = sil_list[np.where(Ks == best_sil_k)][0]
+        ax2.scatter([best_sil_k], [y], s=100, marker="x")
+        ax2.annotate(f"best K={best_sil_k}",
+                     xy=(best_sil_k, y),
+                     xytext=(0, -30),
+                     textcoords="offset points",
+                     ha="center")
+
+    fig.tight_layout()
+    if savepath:
+        plt.savefig(savepath, dpi=200, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+    return {
+        "Ks": Ks.tolist(),
+        "CH": np.where(np.isnan(ch_list), None, ch_list).tolist(),
+        "silhouette": np.where(np.isnan(sil_list), None, sil_list).tolist(),
+        "best_ch_k": best_ch_k,
+        "best_sil_k": best_sil_k,
+    }
+
+
+
 def plot_hc_from_jsonl(path: str, last_k: int = None):
     """从 jsonl 文件读取历史并绘图。若 last_k 指定，则取最后 last_k 行（保持 older->newer 顺序）"""
     steps = []
@@ -199,8 +327,11 @@ def plot_hc_from_jsonl(path: str, last_k: int = None):
     if last_k is not None and last_k < len(steps):
         steps = steps[-last_k:]
     # 调用绘图主函数
+    # for c in [10, 15, 20]:
+    #     plot_hc_and_k_clusters(steps, c)
+    # plot_hc_and_k_clusters(steps, 15)
+    plot_silhouette_and_ch(steps)
 
-    plot_hc_and_k_clusters(steps, 15)
 
 # 示例调用
-plot_hc_from_jsonl("HC_log_avg.jsonl")
+plot_hc_from_jsonl("./result/HC/HC_log_min.jsonl")
