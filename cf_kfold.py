@@ -1,18 +1,3 @@
-#!/usr/bin/env python3
-"""
-run_cv.py
-
-独立交叉验证脚本（不修改 CF.py）。
-Usage example:
-  python run_cv.py --ratings ./data/ml-latest-small/ratings.csv --k 5 --min-common-user 2 --save-topk 50
-
-要求:
-  - 将此脚本和你的 CF.py 放在同一目录，或用 --cf-path 指定包含 CF.py 的目录。
-  - CF.py 中应包含类 CollaborativeFiltering(train(df), predict(user, item))。
-
-输出:
-  - 每折 RMSE/MAE/coverage，并打印整体平均与标准差。
-"""
 import os
 import sys
 import argparse
@@ -23,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 def import_cf_module(cf_path: str):
-    # 把 cf_path 加入 sys.path，优先导入该目录下的 CF.py
     if cf_path and cf_path not in sys.path:
         sys.path.insert(0, cf_path)
     try:
@@ -34,13 +18,6 @@ def import_cf_module(cf_path: str):
 
 def make_user_stratified_folds(df: pd.DataFrame, k: int = 5, seed: int = 42,
                               user_col: str = 'userId', item_col: str = 'movieId'):
-    """
-    per-user stratified folds:
-      - 把 item 只出现一次的记录固定到训练集
-      - 把用户只有一条记录（除去上面已固定的）固定到训练集
-      - 其余用户内随机打乱后 round-robin 分配到 k 个 folds 作为验证
-    返回 list of {'train_idx', 'val_idx'}
-    """
     np.random.seed(seed)
     n = len(df)
     all_indices = np.arange(n)
@@ -54,12 +31,10 @@ def make_user_stratified_folds(df: pd.DataFrame, k: int = 5, seed: int = 42,
     folds = [[] for _ in range(k)]
     always_train = set()
 
-    # 固定单次出现的 item 到训练集中
     for idx, item in enumerate(df[item_col].values):
         if item_counts.get(item, 0) == 1:
             always_train.add(idx)
 
-    # per-user distribute remaining
     for u, idx_list in user2indices.items():
         candidates = [i for i in idx_list if i not in always_train]
         if len(candidates) == 0:
@@ -72,7 +47,6 @@ def make_user_stratified_folds(df: pd.DataFrame, k: int = 5, seed: int = 42,
             fold_id = pos % k
             folds[fold_id].append(idx)
 
-    # safety: remove always_train from folds
     for f in range(k):
         folds[f] = [i for i in folds[f] if i not in always_train]
 
@@ -94,11 +68,6 @@ def mae_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.mean(np.abs(y_true - y_pred)))
 
 def safe_predict(cf, user_id, movie_id, global_mean: float):
-    """
-    对 cf.predict 做保护包装：
-      - 若成功且返回有限值 -> (pred, True)
-      - 否则回退到 user_mean 或 global_mean -> (fallback, False)
-    """
     fallback = getattr(cf, "user_mean", {}).get(user_id, global_mean)
     try:
         pred = cf.predict(user_id, movie_id)
@@ -124,7 +93,6 @@ def run_k_fold_cv(ratings_df: pd.DataFrame, CollaborativeFilteringClass,
         train_df = ratings_df.iloc[f['train_idx']].reset_index(drop=True)
         val_df = ratings_df.iloc[f['val_idx']].reset_index(drop=True)
 
-        # 用你原来的类（不做修改）
         cf = CollaborativeFilteringClass(min_common_user=min_common_user, save_topk=save_topk)
         cf.train(train_df)
 
@@ -161,7 +129,6 @@ def run_k_fold_cv(ratings_df: pd.DataFrame, CollaborativeFilteringClass,
         if verbose:
             print(f"Fold {i} RMSE={fold_rmse:.4f}, MAE={fold_mae:.4f}, coverage={coverage:.3%}")
 
-    # summary
     rmses = [r['rmse'] for r in fold_results]
     maes = [r['mae'] for r in fold_results]
     covs = [r['coverage'] for r in fold_results]
@@ -190,7 +157,7 @@ def parse_args():
     p.add_argument("--ratings", type=str, required=True, help="ratings CSV path (must contain userId,movieId,rating)")
     p.add_argument("--k", type=int, default=10, help="number of folds")
     p.add_argument("--min-common-user", type=int, default=2, help="min_common_user passed to CollaborativeFiltering")
-    p.add_argument("--save-topk", type=int, default=50, help="save_topk passed to CollaborativeFiltering (useful to limit memory)")
+    p.add_argument("--save-topk", default=None, help="save_topk passed to CollaborativeFiltering (useful to limit memory)")
     p.add_argument("--seed", type=int, default=2025, help="random seed")
     p.add_argument("--cf-path", type=str, default=".", help="path to directory containing CF.py (default: current dir)")
     p.add_argument("--no-verbose", action="store_true", help="suppress per-fold printing")

@@ -7,6 +7,7 @@ from multiprocessing import Pool, cpu_count
 
 DATA_PATH = "./data/data.txt"
 SAVE_PATH = "./result/HC/HC_log_max.jsonl"
+DISTANCE_MODE = "max"
 
 class Hierarchical_Clustering:
     def __init__(self, data):
@@ -104,7 +105,7 @@ def main():
     
     hc = Hierarchical_Clustering(data)
     print()
-    result = hc.trian("max")
+    result = hc.trian(DISTANCE_MODE)
     with open(SAVE_PATH, "w") as fw:
         for res in result:
             fw.write(json.dumps(res))

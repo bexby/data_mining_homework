@@ -111,19 +111,21 @@ def plot_gmm(data, means, covs, weights=None, ax=None, cmap='tab10', show_legend
     ax.grid(True)
     return responsibilities
 
-# -----------------------
-# 示例用法（可删去）
+
+DATA_PATH = "./data/data.txt"
+RESULT_PATH = "./result/GMM/GMM_log_15_kmeans_new.jsonl"
+
 if __name__ == "__main__":
     # 生成一些示例数据用于演示
 
-    with open("./result/GMM/GMM_log_15_kmeans_new.jsonl", "r") as fr:
+    with open(RESULT_PATH, "r") as fr:
         gauss = [json.loads(line) for line in fr.readlines()]
     
     gauss = gauss[-1]
     rng = np.random.RandomState(0)
     means = np.array(gauss["mu"])
     covs = np.array(gauss["sigma"])
-    with open("./data/data.txt", "r") as fr:
+    with open(DATA_PATH, "r") as fr:
         data = [list(map(float, line.split())) for line in fr.readlines()]
 
     resp = plot_gmm(data, means, covs)

@@ -127,7 +127,8 @@ def main():
     print(df.tail())
     cf = CollaborativeFiltering(min_common_user=2)
     cf.train(df)
-    pred = cf.prediection(1, 1)
+    pred = cf.predict(1, 1)
+    print()
     print(pred)
 
 

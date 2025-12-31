@@ -7,12 +7,6 @@ from typing import List, Callable, Tuple
 from functools import partial
 from multiprocessing import Pool, cpu_count
 
-K = 15
-STEPS = 100
-DATA_PATH = "./data/data.txt"
-SAVE_PATH = f"GMM_log_{K}_kmeans.jsonl"
-
-
 
 def matrix_mul(mat1: List[List], mat2: List[List]) ->List[List]:
     assert len(mat1[0]) == len(mat2), "mat1's columns must be equal to mat2's rows"
@@ -237,9 +231,9 @@ def main():
     with open(DATA_PATH, "r") as fr:
         data = [list(map(float, line.split())) for line in fr.readlines()]
 
-    # gmm = Gaussian_Mixture_Model_2d(K, custom_initialize)
-    gmm = Gaussian_Mixture_Model_2d(K, initialize_kmeans_builtin_clusters)
-    log = gmm.train(data, STEPS, True)
+    gmm = Gaussian_Mixture_Model_2d(K, INITIAL_METHOD)
+    # gmm = Gaussian_Mixture_Model_2d(K, initialize_kmeans_builtin_clusters)
+    log = gmm.train(data, STEPS, ACCELERATE)
     
     with open(SAVE_PATH, "w") as fw:
         for l in log:
@@ -301,6 +295,14 @@ def main2(min_k=10, max_k=20, results_path="bic_aic_results.json", accelerate=Tr
         print(f" K={k} done, logL={log_likelihood:.3f}, params={p}, BIC={bic:.3f}, AIC={aic:.3f}")
 
     print(f"All done in {time.time() - start_all:.2f} s. Results saved to {results_path}")
+
+
+K = 5
+STEPS = 100
+ACCELERATE = True
+DATA_PATH = "./data/data.txt"
+SAVE_PATH = f"./result/GMM/GMM_log_{K}_kmeans.jsonl"
+INITIAL_METHOD = custom_initialize
 
 
 if __name__ == "__main__":
